@@ -7,7 +7,8 @@ public partial class CameraRenderer
     private ScriptableRenderContext _context;
     private Camera _camera;
     const string bufferName = "Render Camera";
-    private static readonly ShaderTagId unlitShaderTagId = new ShaderTagId("SRPDefaultUnlit");
+    private static readonly ShaderTagId unlitShaderTagId = new("SRPDefaultUnlit"),
+        litShaderTagId = new("CustomLit");
 
     CommandBuffer _buffer = new CommandBuffer {name = bufferName};
     CullingResults _cullingResults;
@@ -17,39 +18,52 @@ public partial class CameraRenderer
 #else
     const string SampleName = bufferName;
 #endif
-    
-    public void Render(ScriptableRenderContext context, Camera camera)
+
+    private Lighting lighting = new Lighting();
+    public void Render(ScriptableRenderContext context, Camera camera,
+        bool useDynamicBatching, bool useGPUInstancing,ShadowSettings shadowSettings)
     {
         _context = context;
         _camera = camera;
         PrepareBuffer();
         PrepareForSceneWindow();
-        if (!Cull())
+        if (!Cull(shadowSettings.maxDistance))
         {
             return;
         }
+        _buffer.BeginSample(SampleName);
+        ExecuteBuffer();
+        lighting.Setup(context, _cullingResults, shadowSettings );
+        _buffer.EndSample(SampleName);
         Setup();
-        DrawVisibleGeometry();
+        DrawVisibleGeometry(useDynamicBatching, useGPUInstancing);
         DrawUnsupportedShaders();
         DrawGizmos();
+        lighting.Cleanup();
         Submit();
     }
     
 
-    bool Cull()
+    bool Cull(float maxDistance)
     {
         if (_camera.TryGetCullingParameters(out ScriptableCullingParameters p))
         {
+            p.shadowDistance = Mathf.Min(maxDistance, _camera.farClipPlane);
             _cullingResults = _context.Cull(ref p);
             return true;
         }
         return false;
     }
     
-    void DrawVisibleGeometry()
+    void DrawVisibleGeometry(bool useDynamicBatching, bool useGPUInstancing)
     {
         var sortingSettings = new SortingSettings(_camera);
-        var drawSettings = new DrawingSettings(unlitShaderTagId, sortingSettings);
+        var drawSettings = new DrawingSettings(unlitShaderTagId, sortingSettings)
+        {
+            enableDynamicBatching = useDynamicBatching,
+            enableInstancing = useGPUInstancing
+        };
+        drawSettings.SetShaderPassName(1, litShaderTagId);
         var filterSettings = new FilteringSettings(RenderQueueRange.opaque);
         _context.DrawRenderers(_cullingResults, ref drawSettings, ref filterSettings);
         _context.DrawSkybox(_camera);
