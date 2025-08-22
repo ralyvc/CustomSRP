@@ -35,6 +35,7 @@ public class Lighting
         context.ExecuteCommandBuffer(buffer);
         buffer.Clear();
         
+        
     }
 
     void SetupLights()
